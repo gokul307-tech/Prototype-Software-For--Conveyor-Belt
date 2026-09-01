@@ -1,0 +1,17 @@
+{
+    "feature_columns": [
+        "acceleration_rms",
+        "gyro_rms",
+        "temperature",
+        "current",
+        "belt_speed",
+        "belt_tension",
+        "days_since_repair"
+    ],
+    "classes": [
+        "HEALTHY",
+        "WARNING",
+        "HIGH_RISK",
+        "RUPTURE"
+    ]
+}

@@ -1,0 +1,10 @@
+Flask
+Flask-SQLAlchemy
+scikit-learn
+numpy
+pandas
+ultralytics
+opencv-python
+Pillow
+python-dotenv
+requests

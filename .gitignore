@@ -1,0 +1,58 @@
+# Python virtual environment
+.venv/
+venv/
+env/
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environment files
+.env
+.env.*
+
+# Database files
+*.db
+*.sqlite3
+
+# IDE / editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build outputs
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Node / frontend dependencies
+frontend/node_modules/
+frontend/build/
+frontend/.cache/
+
+# Logs and runtime artifacts
+*.log
+logs/
+
+# Coverage / test reports
+coverage/
+htmlcov/
+
+# Model artifacts (optional: keep if repository tracks them)
+# backend/models/yolo/*.pt
+# backend/models/random_forest/*.pkl
+
+# Temporary files
+tmp/
+temp/
+*.tmp
