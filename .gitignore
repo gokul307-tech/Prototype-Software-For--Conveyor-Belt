@@ -56,3 +56,12 @@ htmlcov/
 tmp/
 temp/
 *.tmp
+
+# Runtime vision uploads and generated videos
+backend/uploads/
+backend/processed_videos/
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm

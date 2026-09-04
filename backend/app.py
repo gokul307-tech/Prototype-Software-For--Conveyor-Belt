@@ -18,6 +18,8 @@ def create_app(config_name='development'):
     # Create database tables
     with app.app_context():
         db.create_all()
+        os.makedirs(app.config['UPLOAD_DIR'], exist_ok=True)
+        os.makedirs(app.config['PROCESSED_VIDEO_DIR'], exist_ok=True)
     
     # Load ML models at startup
     with app.app_context():
@@ -55,6 +57,7 @@ def create_app(config_name='development'):
                 '/api/joints',
                 '/api/alerts',
                 '/api/vision/inspect',
+                '/api/vision/detect-video',
                 '/api/sensors'
             ]
         }), 200

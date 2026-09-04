@@ -127,6 +127,26 @@ file: <image_file>
 joint_id: joint_01
 ```
 
+### Video Detection (YOLO)
+```bash
+POST /api/vision/detect-video
+Content-Type: multipart/form-data
+
+video: <mp4|avi|mov|mkv|webm>
+joint_id: joint_01
+```
+
+The response contains `video_url`, frame counts, duration, status, and detection summaries. The generated MP4 is served by `GET /api/vision/video/<filename>` and is stored under `backend/processed_videos/` at runtime.
+
+Useful environment variables:
+
+```bash
+YOLO_CONFIDENCE_THRESHOLD=0.35
+ALERT_COOLDOWN_SECONDS=30
+VIDEO_INFERENCE_INTERVAL=1
+ESP32_CAM_URL=http://192.168.1.50/
+```
+
 Response (201 Created):
 ```json
 {

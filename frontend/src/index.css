@@ -1109,6 +1109,31 @@ code {
   padding: 2rem;
 }
 
+.vision-tabs {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.vision-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(0, 212, 255, 0.06);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.vision-tab.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(0, 212, 255, 0.14);
+}
+
 .vision-upload {
   display: flex;
   flex-direction: column;
@@ -1171,6 +1196,13 @@ code {
 .image-preview img {
   width: 100px;
   height: 100px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.image-preview video {
+  width: 180px;
+  max-height: 100px;
   object-fit: cover;
   border-radius: 8px;
 }
@@ -1348,6 +1380,23 @@ code {
   max-height: 400px;
   object-fit: contain;
   border-radius: 8px;
+}
+
+.processed-video {
+  display: block;
+  width: 100%;
+  max-height: 560px;
+  background: #000;
+  border-radius: 8px;
+}
+
+.video-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  margin-top: 1rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
 }
 
 .result-actions {

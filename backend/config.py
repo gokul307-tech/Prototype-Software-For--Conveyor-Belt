@@ -1,5 +1,4 @@
 import os
-from datetime import timedelta
 
 class Config:
     """Base configuration."""
@@ -28,6 +27,14 @@ class Config:
         'yolo',
         'best.pt'
     )
+
+    YOLO_CONFIDENCE_THRESHOLD = float(os.getenv('YOLO_CONFIDENCE_THRESHOLD', '0.35'))
+    ALERT_COOLDOWN_SECONDS = int(os.getenv('ALERT_COOLDOWN_SECONDS', '30'))
+    ESP32_CAM_URL = os.getenv('ESP32_CAM_URL', '')
+    VIDEO_INFERENCE_INTERVAL = int(os.getenv('VIDEO_INFERENCE_INTERVAL', '1'))
+    MAX_CONTENT_LENGTH = 500 * 1024 * 1024
+    UPLOAD_DIR = os.path.join(os.path.dirname(__file__), 'uploads')
+    PROCESSED_VIDEO_DIR = os.path.join(os.path.dirname(__file__), 'processed_videos')
     
     # Alert thresholds
     ALERT_CONFIDENCE_THRESHOLD = 0.7

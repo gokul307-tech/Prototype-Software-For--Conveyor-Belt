@@ -1,14 +1,53 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_from_directory
 from datetime import datetime, timedelta
-from database import db, SensorReading, Prediction, Alert, VisionInspection
+from database import db, SensorReading, Prediction, Alert, VisionInspection, VisionAlert
 from model_loader import ModelLoader, predict_health_status
 from config import Config
+from vision_processing import process_frame
 import json
 import os
 import numpy as np
+import cv2
+import uuid
 from PIL import Image, ImageFilter
 
 api = Blueprint('api', __name__, url_prefix='/api')
+
+ALLOWED_VIDEO_EXTENSIONS = {'mp4', 'avi', 'mov', 'mkv', 'webm'}
+
+
+def _allowed_video(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_VIDEO_EXTENSIONS
+
+
+def _create_vision_alerts(detections, joint_id, source):
+    """Create one active alert per class during the configured cooldown."""
+    created = []
+    now = datetime.utcnow()
+    for detection_type in {item['class'] for item in detections}:
+        matching = [item for item in detections if item['class'] == detection_type]
+        strongest = max(matching, key=lambda item: item['confidence'])
+        recent = VisionAlert.query.filter_by(
+            joint_id=joint_id,
+            detection_type=detection_type,
+            source=source,
+            is_active=True,
+        ).order_by(VisionAlert.timestamp.desc()).first()
+        if recent and (now - recent.timestamp).total_seconds() < Config.ALERT_COOLDOWN_SECONDS:
+            continue
+
+        alert = VisionAlert(
+            joint_id=joint_id,
+            detection_type=detection_type,
+            confidence=strongest['confidence'],
+            source=source,
+            message=f'{detection_type} detected with {strongest["confidence"]:.2%} confidence',
+        )
+        db.session.add(alert)
+        created.append(alert)
+    if created:
+        db.session.commit()
+    return created
 
 
 def _fallback_damage_detection(image_path):
@@ -237,25 +276,16 @@ def inspect_image():
         file.save(temp_path)
         
         try:
-            # Run YOLO inference
-            results = yolo_model(temp_path)
+            image = cv2.imread(temp_path)
+            if image is None:
+                return jsonify({'status': 'error', 'message': 'Uploaded image could not be decoded'}), 400
 
-            # Process results
-            detections = []
-            for result in results:
-                if result.boxes is not None:
-                    for box in result.boxes:
-                        cls_name = result.names.get(int(box.cls), 'Tear') if hasattr(result.names, 'get') else 'Tear'
-                        detections.append({
-                            'class': cls_name,
-                            'confidence': float(box.conf),
-                            'box': {
-                                'x1': float(box.xyxy[0][0]),
-                                'y1': float(box.xyxy[0][1]),
-                                'x2': float(box.xyxy[0][2]),
-                                'y2': float(box.xyxy[0][3]),
-                            }
-                        })
+            _, frame_result = process_frame(
+                image,
+                Config.YOLO_CONFIDENCE_THRESHOLD,
+                frame_number=0,
+            )
+            detections = frame_result['detections']
 
             # Fallback for tear defects the model misses.
             if not detections:
@@ -266,7 +296,9 @@ def inspect_image():
                 overall_status = 'NO_DEFECTS'
             else:
                 max_conf = max([d['confidence'] for d in detections])
-                overall_status = 'DEFECTS_DETECTED' if max_conf > 0.35 else 'LOW_CONFIDENCE'
+                overall_status = 'DEFECTS_DETECTED' if max_conf >= Config.YOLO_CONFIDENCE_THRESHOLD else 'LOW_CONFIDENCE'
+
+            vision_alerts = _create_vision_alerts(detections, joint_id, 'IMAGE')
 
             # Save to database
             vision_inspection = VisionInspection(
@@ -290,6 +322,7 @@ def inspect_image():
                 'detection_count': len(detections),
                 'detections': detections,
                 'defects': defects,
+                'alerts_created': len(vision_alerts),
                 'timestamp': vision_inspection.timestamp.isoformat()
             }), 201
         
@@ -306,6 +339,116 @@ def inspect_image():
         }), 500
 
 
+@api.route('/vision/detect-video', methods=['POST'])
+def detect_video():
+    """Process an uploaded video and return a browser-playable annotated result."""
+    upload_path = None
+    try:
+        uploaded = request.files.get('video')
+        if uploaded is None or not uploaded.filename:
+            return jsonify({'status': 'error', 'message': 'No video file provided'}), 400
+        if not _allowed_video(uploaded.filename):
+            return jsonify({'status': 'error', 'message': 'Unsupported video format'}), 415
+        if ModelLoader.get_yolo() is None:
+            return jsonify({'status': 'error', 'message': 'YOLO model not loaded'}), 500
+
+        joint_id = request.form.get('joint_id') or 'joint_01'
+        source = request.form.get('source') or 'VIDEO'
+        extension = uploaded.filename.rsplit('.', 1)[1].lower()
+        upload_name = f'{uuid.uuid4().hex}.{extension}'
+        upload_path = os.path.join(Config.UPLOAD_DIR, upload_name)
+        uploaded.save(upload_path)
+
+        capture = cv2.VideoCapture(upload_path)
+        if not capture.isOpened():
+            return jsonify({'status': 'error', 'message': 'Video could not be opened'}), 400
+
+        fps = capture.get(cv2.CAP_PROP_FPS) or 25.0
+        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        if width <= 0 or height <= 0:
+            capture.release()
+            return jsonify({'status': 'error', 'message': 'Video has invalid dimensions'}), 400
+
+        output_name = f'{uuid.uuid4().hex}.mp4'
+        output_path = os.path.join(Config.PROCESSED_VIDEO_DIR, output_name)
+        writer = cv2.VideoWriter(
+            output_path,
+            cv2.VideoWriter_fourcc(*'mp4v'),
+            fps,
+            (width, height),
+        )
+        if not writer.isOpened():
+            capture.release()
+            return jsonify({'status': 'error', 'message': 'Could not create output video'}), 500
+
+        all_detections = []
+        processed_frames = 0
+        frame_number = 0
+        interval = max(1, Config.VIDEO_INFERENCE_INTERVAL)
+        try:
+            while True:
+                success, frame = capture.read()
+                if not success:
+                    break
+                if frame_number % interval == 0:
+                    annotated, frame_result = process_frame(
+                        frame,
+                        Config.YOLO_CONFIDENCE_THRESHOLD,
+                        frame_number=frame_number,
+                        timestamp=(frame_number / fps),
+                    )
+                    all_detections.extend(frame_result['detections'])
+                else:
+                    annotated = frame
+                writer.write(annotated)
+                processed_frames += 1
+                frame_number += 1
+        finally:
+            capture.release()
+            writer.release()
+
+        if processed_frames == 0:
+            if os.path.exists(output_path):
+                os.remove(output_path)
+            return jsonify({'status': 'error', 'message': 'Video contains no readable frames'}), 400
+
+        unique_detections = {}
+        for detection in all_detections:
+            key = detection['class']
+            current = unique_detections.get(key)
+            if current is None or detection['confidence'] > current['confidence']:
+                unique_detections[key] = detection
+        detections = list(unique_detections.values())
+        alerts_created = _create_vision_alerts(detections, joint_id, source)
+        return jsonify({
+            'status': 'success',
+            'video_url': f'/api/vision/video/{output_name}',
+            'detections': detections,
+            'detection_count': len(all_detections),
+            'frame_count': total_frames or processed_frames,
+            'processed_frames': processed_frames,
+            'fps': round(fps, 3),
+            'duration': round(processed_frames / fps, 3),
+            'overall_status': 'DAMAGE_DETECTED' if detections else 'NORMAL',
+            'alerts_created': len(alerts_created),
+            'source': source,
+        }), 201
+    except Exception as error:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(error)}), 500
+    finally:
+        if upload_path and os.path.exists(upload_path):
+            os.remove(upload_path)
+
+
+@api.route('/vision/video/<path:filename>', methods=['GET'])
+def serve_processed_video(filename):
+    """Serve only generated videos from the configured output directory."""
+    return send_from_directory(Config.PROCESSED_VIDEO_DIR, filename, mimetype='video/mp4')
+
+
 @api.route('/dashboard', methods=['GET'])
 def get_dashboard():
     """Get dashboard summary data."""
@@ -319,11 +462,19 @@ def get_dashboard():
         active_alerts = db.session.query(Alert).filter(
             Alert.is_active == True
         ).order_by(Alert.timestamp.desc()).all()
+        active_vision_alerts = VisionAlert.query.filter_by(
+            is_active=True
+        ).order_by(VisionAlert.timestamp.desc()).all()
+        combined_alerts = sorted(
+            active_alerts + active_vision_alerts,
+            key=lambda alert: alert.timestamp,
+            reverse=True,
+        )
         
         # Get statistics
         total_readings = db.session.query(SensorReading).count()
         total_predictions = db.session.query(Prediction).count()
-        active_alert_count = len(active_alerts)
+        active_alert_count = len(combined_alerts)
         
         # Group predictions by status
         status_counts = {}
@@ -339,7 +490,7 @@ def get_dashboard():
                 'status_breakdown': status_counts
             },
             'latest_predictions': [p.to_dict() for p in latest_predictions],
-            'active_alerts': [a.to_dict() for a in active_alerts[:5]],
+            'active_alerts': [a.to_dict() for a in combined_alerts[:5]],
             'timestamp': datetime.utcnow().isoformat()
         }), 200
     
@@ -403,6 +554,15 @@ def get_alerts():
             query = query.filter_by(is_active=True)
         
         alerts = query.limit(limit).all()
+        vision_query = VisionAlert.query
+        if active_only:
+            vision_query = vision_query.filter_by(is_active=True)
+        vision_alerts = vision_query.order_by(VisionAlert.timestamp.desc()).limit(limit).all()
+        alerts = sorted(
+            alerts + vision_alerts,
+            key=lambda alert: alert.timestamp,
+            reverse=True,
+        )[:limit]
         
         return jsonify({
             'status': 'success',

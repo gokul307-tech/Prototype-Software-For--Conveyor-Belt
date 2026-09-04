@@ -81,6 +81,36 @@ class Alert(db.Model):
             'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,
         }
 
+
+class VisionAlert(db.Model):
+    """Store deduplicated YOLO alerts without requiring a sensor prediction."""
+    __tablename__ = 'vision_alerts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    joint_id = db.Column(db.String(50), nullable=False)
+    detection_type = db.Column(db.String(100), nullable=False)
+    confidence = db.Column(db.Float, nullable=False)
+    source = db.Column(db.String(30), nullable=False)
+    severity = db.Column(db.String(50), nullable=False, default='DAMAGE_DETECTED')
+    message = db.Column(db.String(500), nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    resolved_at = db.Column(db.DateTime, nullable=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'timestamp': self.timestamp.isoformat(),
+            'joint_id': self.joint_id,
+            'detection_type': self.detection_type,
+            'confidence': round(self.confidence, 4),
+            'source': self.source,
+            'severity': self.severity,
+            'message': self.message,
+            'is_active': self.is_active,
+            'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,
+        }
+
 class VisionInspection(db.Model):
     """Store YOLO vision inspection results."""
     __tablename__ = 'vision_inspections'

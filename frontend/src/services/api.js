@@ -4,7 +4,7 @@ const API_BASE_URL = 'http://localhost:5000/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
+  timeout: 120000,
 });
 
 // Add response interceptor for error handling
@@ -69,6 +69,21 @@ export const apiService = {
       return response.data;
     } catch (error) {
       throw new Error(`Failed to process vision inspection: ${error.message}`);
+    }
+  },
+
+  postVideoDetection: async (videoFile, jointId = 'joint_01') => {
+    try {
+      const formData = new FormData();
+      formData.append('video', videoFile);
+      formData.append('joint_id', jointId);
+      const response = await api.post('/vision/detect-video', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 0,
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(`Failed to process video: ${error.message}`);
     }
   },
 
