@@ -8,3 +8,5 @@ opencv-python
 Pillow
 python-dotenv
 requests
+gunicorn
+psycopg[binary]

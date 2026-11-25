@@ -1,8 +1,14 @@
 import os
 
+database_url = os.getenv('DATABASE_URL', 'sqlite:///conveyor_monitoring.db')
+if database_url.startswith('postgres://'):
+    database_url = database_url.replace('postgres://', 'postgresql+psycopg://', 1)
+elif database_url.startswith('postgresql://'):
+    database_url = database_url.replace('postgresql://', 'postgresql+psycopg://', 1)
+
 class Config:
     """Base configuration."""
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///conveyor_monitoring.db'
+    SQLALCHEMY_DATABASE_URI = database_url
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     JSON_SORT_KEYS = False
     
